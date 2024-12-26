@@ -4,33 +4,38 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
+
+	pokecache "github.com/gaba-bouliva/pokedex-cli/internal/pokecache"
 )
 
-type cliCommand struct { 
-	name 						string
-	description			string
-	callback 				func()error
+type cliCommand struct {
+	name        string
+	description string
+	callback    func() error
 	*config
 }
 
-type location struct { 
-	Name 				string
-	URL 				string				
+type location struct {
+	Name string
+	URL  string
 }
 
-type config struct { 
-	BaseUrl 			string
-	Next					string			`json:"next"`
-	Previous			string			`json:"previous"`
-	Locations 		[]location 	`json:"results"`
+type config struct {
+	BaseUrl   string
+	Next      string     `json:"next"`
+	Previous  string     `json:"previous"`
+	Locations []location `json:"results"`
 }
+
+var cacheEntries = pokecache.NewCache(10)
 
 var commands map[string]cliCommand
 
-func main () { 
+func main() {
 	commands = getCommands()
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -39,109 +44,153 @@ func main () {
 		usrInput := scanner.Text()
 		cleanedInput := strings.ToLower(strings.TrimSpace(usrInput))
 		firstCmd := strings.Split(cleanedInput, " ")[0]
-		if cmd, exists := commands[firstCmd]; !exists { 
+		if cmd, exists := commands[firstCmd]; !exists {
 			fmt.Println("Unknown command")
-		} else {	
+		} else {
 			err := cmd.callback()
 			if err != nil {
 				fmt.Println(err)
-			}		
 			}
-			
+		}
+
 	}
 }
 
-func cmdMap() error { 
-	cmd,ok := commands["map"]
-	if !ok { 
+func cmdMap() error {
+	cmd, ok := commands["map"]
+	if !ok {
 		return fmt.Errorf("no command with name map exists")
 	}
+
 	var url string
+	var conf config
+
 	if cmd.Next != "" || len(cmd.Next) > len(cmd.BaseUrl) {
-		url = cmd.Next	
-	} else { 
+		url = cmd.Next
+	} else {
 		url = cmd.BaseUrl
 	}
-	res, err := http.Get(url)
-	if err != nil { 
-		return err
+	fmt.Println()
+	fmt.Println("current url: ", url)
+	fmt.Printf("cached entries: %+v\n", maps.Keys(cacheEntries.Entries))
+	for k := range cacheEntries.Entries {
+		fmt.Printf("cached key: %+v\n", k)
 	}
-	decoder := json.NewDecoder(res.Body)
-	var conf config	
-	err = decoder.Decode(&conf)
-	if err != nil { 
-		return err
+	fmt.Println()
+	if cachedRes, ok := cacheEntries.Get(url); ok {
+		err := json.Unmarshal(cachedRes, &conf)
+		if err != nil {
+			return err
+		}
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		decoder := json.NewDecoder(res.Body)
+		err = decoder.Decode(&conf)
+		if err != nil {
+			return err
+		}
+		jsonVal, err := json.Marshal(&conf)
+		if err != nil {
+			return err
+		}
+		cacheEntries.Add(url, jsonVal)
 	}
+
 	cmd.Next = conf.Next
 	cmd.Previous = conf.Previous
 	cmd.Locations = conf.Locations
-	for _, location := range cmd.Locations { 
+	for _, location := range cmd.Locations {
 		fmt.Println(location.Name)
 	}
+
 	return nil
 }
 
-func cmdBackMap() error { 
-	cmd,ok := commands["map"]
-	if !ok { 
+func cmdBackMap() error {
+	cmd, ok := commands["map"]
+	if !ok {
 		return fmt.Errorf("no command with name map exists")
 	}
-	if len(cmd.Previous) < len(cmd.BaseUrl) { 
+	if len(cmd.Previous) < len(cmd.BaseUrl) {
 		return fmt.Errorf("no previous locations available")
 	}
 	var url string
+	var conf config
+
 	if cmd.Previous != "" || len(cmd.Previous) > len(cmd.BaseUrl) {
-		url = cmd.Previous	
-	} else { 
+		url = cmd.Previous
+	} else {
 		url = cmd.BaseUrl
 	}
-	res, err := http.Get(url)
-	if err != nil { 
-		return err
+	fmt.Println()
+	fmt.Println("current url: ", url)
+	for k := range cacheEntries.Entries {
+		fmt.Printf("cached key: %+v\n", k)
+	}
+	fmt.Println()
+	if cachedRes, ok := cacheEntries.Get(url); ok {
+		fmt.Println("cached response for url: ", url)
+		err := json.Unmarshal(cachedRes, &conf)
+		if err != nil {
+			return err
+		}
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+
+		decoder := json.NewDecoder(res.Body)
+		err = decoder.Decode(&conf)
+		if err != nil {
+			return err
+		}
+		jsonVal, err := json.Marshal(&conf)
+		if err != nil {
+			return err
+		}
+		cacheEntries.Add(url, jsonVal)
 	}
 
-	decoder := json.NewDecoder(res.Body)
-	var conf config	
-	err = decoder.Decode(&conf)
-	if err != nil { 
-		return err
-	}
 	cmd.Next = conf.Next
 	cmd.Previous = conf.Previous
 	cmd.Locations = conf.Locations
-	for _, location := range cmd.Locations { 
+	for _, location := range cmd.Locations {
 		fmt.Println(location.Name)
 	}
 	return nil
 }
 
-func cmdExit() error { 
+func cmdExit() error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func cmdHelp() error { 
+func cmdHelp() error {
 	fmt.Println("Welcome to the Pokedex!")
 	fmt.Println("Usage:")
 	fmt.Println()
-	fmt.Println()	 		
-	for _, v := range getCommands() { 
-			fmt.Printf("%s: %s\n", v.name, v.description)
-		}
+	fmt.Println()
+	for _, v := range getCommands() {
+		fmt.Printf("%s: %s\n", v.name, v.description)
+	}
 	return nil
 }
 
-func cleanInput(text string) []string { 
+func cleanInput(text string) []string {
 	words := strings.Split(text, " ")
 	cleanWords := []string{}
 	for _, word := range words {
 		currentWord := strings.TrimSpace(word)
-		if  currentWord != "" {
+		if currentWord != "" {
 			cleanWords = append(cleanWords, currentWord)
 		}
 	}
-	
+
 	return cleanWords
 }
 
