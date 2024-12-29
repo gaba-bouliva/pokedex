@@ -82,6 +82,14 @@ func main() {
 						pokemonName := cmdArgs[1]
 						cmd.callback = getCatchCmdCallback(pokemonName)
 					}
+				case "inspect":
+					if len(cmdArgs) < 2 {
+						fmt.Println("Invalid use of command inspect")
+						fmt.Println("[Usage:] inspect <pokemon name>")
+					} else {
+						pokemonName := cmdArgs[1]
+						cmd.callback = getInspectCmdCallback(pokemonName)
+					}
 				default:
 			}	
 			if cmd.callback != nil {
@@ -93,6 +101,49 @@ func main() {
 
 		}
 
+	}
+}
+
+
+func getInspectCmdCallback(name string) func() error { 
+	return func () error {
+		_, ok := commands["catch"]	
+		if !ok { 
+			return fmt.Errorf("no command with name inspect exists")
+		}
+		if pokemon, exists := pokedex[name]; exists { 
+			fmt.Println("Name:", pokemon.Name)
+			fmt.Println("Height:", pokemon.Height)
+			fmt.Println("Weight:", pokemon.Weight)
+			fmt.Println("Stats:")
+			for _,stat := range pokemon.Stats { 
+				if stat.Detail.Name == "hp" { 
+					fmt.Println("\t-hp:", stat.Value)
+				}
+				if stat.Detail.Name == "attack" { 
+					fmt.Println("\t-attack:", stat.Value)
+				}
+				if stat.Detail.Name == "defense" { 
+					fmt.Println("\t-defense:", stat.Value)
+				}
+				if stat.Detail.Name == "special-attack" { 
+					fmt.Println("\t-special-attack:", stat.Value)
+				}
+				if stat.Detail.Name == "special-defense" { 
+					fmt.Println("\t-special-defense:", stat.Value)
+				}
+				if stat.Detail.Name == "speed" { 
+					fmt.Println("\t-speed:", stat.Value)
+				}
+			}  
+			fmt.Println("Types:")
+			for _,t := range pokemon.Types { 
+				fmt.Println("\t- ",t.Name)
+			}
+		} else { 
+			fmt.Println("you have not yet caught that pokemon")
+		}
+		return nil
 	}
 }
 
@@ -362,6 +413,11 @@ func getCommands() map[string]cliCommand {
 		"catch": {
 			name: "catch",
 			description: "Catch pokemons",
+			config: &config{},
+		},
+		"inspect": {
+			name: "inspect",
+			description: "View details of a pokemon already caught",
 			config: &config{},
 		},
 	}
