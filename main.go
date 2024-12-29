@@ -358,10 +358,10 @@ func cmdHelp() error {
 	fmt.Println("Welcome to the Pokedex!")
 	fmt.Println("Usage:")
 	fmt.Println()
-	fmt.Println()
 	for _, v := range getCommands() {
 		fmt.Printf("%s: %s\n", v.name, v.description)
 	}
+	fmt.Println()
 	return nil
 }
 
@@ -419,7 +419,7 @@ func getCommands() map[string]cliCommand {
 		},
 		"catch": {
 			name: "catch",
-			description: "Catch pokemons",
+			description: "Catch pokemons and store them in pokedex",
 			config: &config{},
 		},
 		"inspect": {
