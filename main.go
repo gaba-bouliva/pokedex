@@ -104,6 +104,13 @@ func main() {
 	}
 }
 
+func cmdPokedex () error { 
+	fmt.Println("Your Pokedex:")
+	for _, pokemon := range pokedex {
+		fmt.Printf("\t- %s\n", pokemon.Name)
+	}
+	return nil
+}
 
 func getInspectCmdCallback(name string) func() error { 
 	return func () error {
@@ -419,6 +426,12 @@ func getCommands() map[string]cliCommand {
 			name: "inspect",
 			description: "View details of a pokemon already caught",
 			config: &config{},
+		},
+		"pokedex": { 
+			name: "pokedex",
+			description: "View list of all pokemons caught",
+			config: &config{},
+			callback: cmdPokedex,
 		},
 	}
 }
