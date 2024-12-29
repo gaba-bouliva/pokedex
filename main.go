@@ -19,8 +19,19 @@ type cliCommand struct {
 }
 
 type location struct {
-	Name string
-	URL  string
+	Name string				`json:"name"`
+	URL  string				`json:"url"`
+}
+
+type PokemonEncounter struct { 
+	Pokemon 					location 		`json:"pokemon"`
+	VersionDetails		[]any				`json:"version_details"`
+}
+
+type locationArea struct { 
+	ID       						int										`json:"id"`
+	Name								string								`json:"name"`
+	PokemonEncounters		[]PokemonEncounter		`json:"pokemon_encounters"`	
 }
 
 type config struct {
@@ -30,7 +41,9 @@ type config struct {
 	Locations []location `json:"results"`
 }
 
-var cacheEntries = pokecache.NewCache(10)
+var cacheEntries = pokecache.NewCache(20)
+
+var baseUrl = "https://pokeapi.co/api/v2"
 
 var commands map[string]cliCommand
 
@@ -69,23 +82,20 @@ func main() {
 }
 
 func getExploreCmdCallback(name string) func() error {
-
-	cache := pokecache.NewCache(20)
 	return func() error {
-		fmt.Println("runing explore callback")
-		cmd, ok := commands["explore"]
+		_, ok := commands["explore"]
 		if !ok {
 			return fmt.Errorf("no command with name explore exists")
 		}
-		conf := config{}
-		url := "https://pokeapi.co/api/v2/location-area/" + name
-		conf.BaseUrl = url
-		fmt.Println("cmd: ", cmd)
-		fmt.Println("url: ", url)
-		fmt.Println("conf: ", conf)
-		jsonRes, exists := cache.Get(url)
+		locaionArea := locationArea{}
+		resource := "location-area"
+		url := fmt.Sprintf("%s/%s/%s/", baseUrl, resource, name)
+		for k := range cacheEntries.Entries { 
+				fmt.Println(k)
+		}
+		jsonRes, exists := cacheEntries.Get(url)
 		if exists {
-			err := json.Unmarshal(jsonRes, &conf)
+			err := json.Unmarshal(jsonRes, &locaionArea)
 			if err != nil {
 				return err
 			}
@@ -94,22 +104,25 @@ func getExploreCmdCallback(name string) func() error {
 			if err != nil {
 				return err
 			}
+			defer res.Body.Close()
 			decoder := json.NewDecoder(res.Body)
-			err = decoder.Decode(&conf)
+			err = decoder.Decode(&locaionArea)
+			if err != nil {
+				fmt.Printf("error decoding json response: got error: %v\n", err)
+				if res.StatusCode == 404 {
+					return fmt.Errorf("location area %s not found", name)
+				}
+				return err
+			}
+			jsonVal, err := json.Marshal(&locaionArea)
 			if err != nil {
 				return err
 			}
-			jsonVal, err := json.Marshal(&conf)
-			if err != nil {
-				return err
-			}
-			cache.Add(url, jsonVal)
+			cacheEntries.Add(url, jsonVal)
 		}
-		cmd.Next = conf.Next
-		cmd.Previous = conf.Previous
-		cmd.Locations = conf.Locations
-		for _, location := range cmd.Locations {
-			fmt.Println(location.Name)
+	
+		for _, encounter := range locaionArea.PokemonEncounters {
+			fmt.Println(encounter.Pokemon.Name)
 		}
 
 		return nil
