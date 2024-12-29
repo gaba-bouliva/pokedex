@@ -53,7 +53,7 @@ func (c *Cache) reapLoop(key string) {
 	defer ticker.Stop()
 	expired := make(chan bool)
 	go func() {
-		time.Sleep(c.interval * time.Second)
+		time.Sleep(c.interval)
 		expired <- true
 	}()
 	go func() {

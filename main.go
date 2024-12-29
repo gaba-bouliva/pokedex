@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -43,17 +42,79 @@ func main() {
 		scanner.Scan()
 		usrInput := scanner.Text()
 		cleanedInput := strings.ToLower(strings.TrimSpace(usrInput))
-		firstCmd := strings.Split(cleanedInput, " ")[0]
+		cmdArgs := strings.Split(cleanedInput, " ")
+		firstCmd := cmdArgs[0]
 		if cmd, exists := commands[firstCmd]; !exists {
 			fmt.Println("Unknown command")
 		} else {
-			err := cmd.callback()
-			if err != nil {
-				fmt.Println(err)
+			if firstCmd == "explore" {
+				if len(cmdArgs) < 2 {
+					fmt.Println("Invalid use of command explore")
+					fmt.Println("[Usage:] explore <location name>")
+				} else {
+					locationName := cmdArgs[1]
+					cmd.callback = getExploreCmdCallback(locationName)
+				}
 			}
+			if cmd.callback != nil {
+				err := cmd.callback()
+				if err != nil {
+					fmt.Println(err)
+				}
+			}
+
 		}
 
 	}
+}
+
+func getExploreCmdCallback(name string) func() error {
+
+	cache := pokecache.NewCache(20)
+	return func() error {
+		fmt.Println("runing explore callback")
+		cmd, ok := commands["explore"]
+		if !ok {
+			return fmt.Errorf("no command with name explore exists")
+		}
+		conf := config{}
+		url := "https://pokeapi.co/api/v2/location-area/" + name
+		conf.BaseUrl = url
+		fmt.Println("cmd: ", cmd)
+		fmt.Println("url: ", url)
+		fmt.Println("conf: ", conf)
+		jsonRes, exists := cache.Get(url)
+		if exists {
+			err := json.Unmarshal(jsonRes, &conf)
+			if err != nil {
+				return err
+			}
+		} else {
+			res, err := http.Get(url)
+			if err != nil {
+				return err
+			}
+			decoder := json.NewDecoder(res.Body)
+			err = decoder.Decode(&conf)
+			if err != nil {
+				return err
+			}
+			jsonVal, err := json.Marshal(&conf)
+			if err != nil {
+				return err
+			}
+			cache.Add(url, jsonVal)
+		}
+		cmd.Next = conf.Next
+		cmd.Previous = conf.Previous
+		cmd.Locations = conf.Locations
+		for _, location := range cmd.Locations {
+			fmt.Println(location.Name)
+		}
+
+		return nil
+	}
+
 }
 
 func cmdMap() error {
@@ -70,13 +131,7 @@ func cmdMap() error {
 	} else {
 		url = cmd.BaseUrl
 	}
-	fmt.Println()
-	fmt.Println("current url: ", url)
-	fmt.Printf("cached entries: %+v\n", maps.Keys(cacheEntries.Entries))
-	for k := range cacheEntries.Entries {
-		fmt.Printf("cached key: %+v\n", k)
-	}
-	fmt.Println()
+
 	if cachedRes, ok := cacheEntries.Get(url); ok {
 		err := json.Unmarshal(cachedRes, &conf)
 		if err != nil {
@@ -125,12 +180,7 @@ func cmdBackMap() error {
 	} else {
 		url = cmd.BaseUrl
 	}
-	fmt.Println()
-	fmt.Println("current url: ", url)
-	for k := range cacheEntries.Entries {
-		fmt.Printf("cached key: %+v\n", k)
-	}
-	fmt.Println()
+
 	if cachedRes, ok := cacheEntries.Get(url); ok {
 		fmt.Println("cached response for url: ", url)
 		err := json.Unmarshal(cachedRes, &conf)
@@ -227,6 +277,11 @@ func getCommands() map[string]cliCommand {
 			config: &config{
 				BaseUrl: "https://pokeapi.co/api/v2/location-area/",
 			},
+		},
+		"explore": {
+			name:        "explore",
+			description: "Explore pokemons in a location",
+			config:      &config{},
 		},
 	}
 }
