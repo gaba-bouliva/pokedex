@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	pokecache "github.com/gaba-bouliva/pokedex-cli/internal/pokecache"
+	"github.com/gaba-bouliva/pokedex-cli/internal/pokemon"
 )
 
 type cliCommand struct {
@@ -28,6 +29,8 @@ type PokemonEncounter struct {
 	VersionDetails		[]any				`json:"version_details"`
 }
 
+
+
 type locationArea struct { 
 	ID       						int										`json:"id"`
 	Name								string								`json:"name"`
@@ -40,6 +43,8 @@ type config struct {
 	Previous  string     `json:"previous"`
 	Locations []location `json:"results"`
 }
+
+var pokedex = make(map[string]pokemon.Pokemon)
 
 var cacheEntries = pokecache.NewCache(20)
 
@@ -60,15 +65,25 @@ func main() {
 		if cmd, exists := commands[firstCmd]; !exists {
 			fmt.Println("Unknown command")
 		} else {
-			if firstCmd == "explore" {
-				if len(cmdArgs) < 2 {
-					fmt.Println("Invalid use of command explore")
-					fmt.Println("[Usage:] explore <location name>")
-				} else {
-					locationName := cmdArgs[1]
-					cmd.callback = getExploreCmdCallback(locationName)
-				}
-			}
+			switch firstCmd {
+				case "explore":
+					if len(cmdArgs) < 2 {
+						fmt.Println("Invalid use of command explore")
+						fmt.Println("[Usage:] explore <location name>")
+					} else {
+						locationName := cmdArgs[1]
+						cmd.callback = getExploreCmdCallback(locationName)
+					}
+				case "catch":
+					if len(cmdArgs) < 2 {
+						fmt.Println("Invalid use of command catch")
+						fmt.Println("[Usage:] catch <pokemon name>")
+					} else {
+						pokemonName := cmdArgs[1]
+						cmd.callback = getCatchCmdCallback(pokemonName)
+					}
+				default:
+			}	
 			if cmd.callback != nil {
 				err := cmd.callback()
 				if err != nil {
@@ -81,21 +96,18 @@ func main() {
 	}
 }
 
-func getExploreCmdCallback(name string) func() error {
-	return func() error {
-		_, ok := commands["explore"]
-		if !ok {
-			return fmt.Errorf("no command with name explore exists")
+func getCatchCmdCallback(name string) func() error { 
+	return func () error  {
+		_, ok := commands["catch"]	
+		if !ok { 
+			return fmt.Errorf("no command with name catch exists")
 		}
-		locaionArea := locationArea{}
-		resource := "location-area"
-		url := fmt.Sprintf("%s/%s/%s/", baseUrl, resource, name)
-		for k := range cacheEntries.Entries { 
-				fmt.Println(k)
-		}
+		pokemon := pokemon.NewPokemon()
+		resource := "pokemon"
+		url := fmt.Sprintf("%s/%s/%s", baseUrl, resource, name)
 		jsonRes, exists := cacheEntries.Get(url)
 		if exists {
-			err := json.Unmarshal(jsonRes, &locaionArea)
+			err := json.Unmarshal(jsonRes, &pokemon)
 			if err != nil {
 				return err
 			}
@@ -106,7 +118,58 @@ func getExploreCmdCallback(name string) func() error {
 			}
 			defer res.Body.Close()
 			decoder := json.NewDecoder(res.Body)
-			err = decoder.Decode(&locaionArea)
+			err = decoder.Decode(&pokemon)
+			if err != nil {
+				fmt.Printf("error decoding json response: got error: %v\n", err)
+				if res.StatusCode == 404 {
+					return fmt.Errorf("resource %s with name %s not found", resource, name)
+				}
+				if res.StatusCode == 500 { 
+					return fmt.Errorf("server encountered an error. Try again later")
+				}
+				return err
+			}
+			jsonVal, err := json.Marshal(&pokemon)
+			if err != nil {
+				return err
+			}
+			cacheEntries.Add(url, jsonVal)
+		}
+		fmt.Printf("Throwing a Pokeball at %s...\n", name)
+		if pokemon.Catch() { 
+			fmt.Printf("%s was caught!\n", name)
+			pokedex[name] = pokemon
+		}else {
+			fmt.Printf("%s excaped!\n", name)
+		}
+
+		return nil
+	}
+}
+
+func getExploreCmdCallback(name string) func() error {
+	return func() error {
+		_, ok := commands["explore"]
+		if !ok {
+			return fmt.Errorf("no command with name explore exists")
+		}
+		locationArea := locationArea{}
+		resource := "location-area"
+		url := fmt.Sprintf("%s/%s/%s/", baseUrl, resource, name)
+		jsonRes, exists := cacheEntries.Get(url)
+		if exists {
+			err := json.Unmarshal(jsonRes, &locationArea)
+			if err != nil {
+				return err
+			}
+		} else {
+			res, err := http.Get(url)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			decoder := json.NewDecoder(res.Body)
+			err = decoder.Decode(&locationArea)
 			if err != nil {
 				fmt.Printf("error decoding json response: got error: %v\n", err)
 				if res.StatusCode == 404 {
@@ -114,14 +177,14 @@ func getExploreCmdCallback(name string) func() error {
 				}
 				return err
 			}
-			jsonVal, err := json.Marshal(&locaionArea)
+			jsonVal, err := json.Marshal(&locationArea)
 			if err != nil {
 				return err
 			}
 			cacheEntries.Add(url, jsonVal)
 		}
 	
-		for _, encounter := range locaionArea.PokemonEncounters {
+		for _, encounter := range locationArea.PokemonEncounters {
 			fmt.Println(encounter.Pokemon.Name)
 		}
 
@@ -295,6 +358,11 @@ func getCommands() map[string]cliCommand {
 			name:        "explore",
 			description: "Explore pokemons in a location",
 			config:      &config{},
+		},
+		"catch": {
+			name: "catch",
+			description: "Catch pokemons",
+			config: &config{},
 		},
 	}
 }
